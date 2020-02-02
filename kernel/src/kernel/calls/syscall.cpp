@@ -28,6 +28,8 @@
 #include "kernel/calls/syscall_tasking.hpp"
 #include "kernel/calls/syscall_memory.hpp"
 #include "kernel/calls/syscall_filesystem.hpp"
+#include "kernel/calls/syscall_vm86.hpp"
+#include "kernel/calls/syscall_messaging.hpp"
 
 static g_syscall_registration* syscallRegistrations = 0;
 
@@ -64,27 +66,27 @@ void syscallRunThreaded(g_syscall_handler handler, g_task* caller, void* syscall
 	g_tasking_local* local = taskingGetLocal();
 	mutexAcquire(&local->lock);
 
-	g_task* proc = caller->syscall.processingTask;
-	if(proc == 0)
+	g_task* thread = caller->syscall.processingTask;
+	if(thread == 0)
 	{
-		proc = taskingCreateThread(0, caller->process, G_SECURITY_LEVEL_KERNEL);
-		proc->type = G_THREAD_TYPE_SYSCALL;
-		proc->syscall.sourceTask = caller;
-		caller->syscall.processingTask = proc;
+		thread = taskingCreateThread(0, caller->process, G_SECURITY_LEVEL_KERNEL);
+		thread->type = G_THREAD_TYPE_SYSCALL;
+		thread->syscall.sourceTask = caller;
+		caller->syscall.processingTask = thread;
 	}
 
-	taskingResetTaskState(proc);
-	proc->status = G_THREAD_STATUS_RUNNING;
-	proc->state->eip = (g_virtual_address) syscallThreadEntry;
+	taskingResetTaskState(thread);
+	thread->status = G_THREAD_STATUS_RUNNING;
+	thread->state->eip = (g_virtual_address) syscallThreadEntry;
 
 	// Let caller task wait
 	caller->status = G_THREAD_STATUS_WAITING;
 
 	// Put task in scheduling
-	taskingAssign(local, proc);
+	taskingAssign(local, thread);
 	mutexRelease(&local->lock);
 
-	taskingPleaseSchedule(proc);
+	taskingPleaseSchedule(thread);
 	taskingSchedule();
 }
 
@@ -138,18 +140,38 @@ void syscallRegisterAll()
 	syscallRegister(G_SYSCALL_SET_VIDEO_LOG, (g_syscall_handler) syscallSetVideoLog, false);
 	syscallRegister(G_SYSCALL_TEST, (g_syscall_handler) syscallTest, false);
 	syscallRegister(G_SYSCALL_RELEASE_CLI_ARGUMENTS, (g_syscall_handler) syscallReleaseCliArguments, false);
-	syscallRegister(G_SYSCALL_GET_EXECUTABLE_PATH, (g_syscall_handler) syscallGetExecutablePath, false);
 	syscallRegister(G_SYSCALL_GET_WORKING_DIRECTORY, (g_syscall_handler) syscallGetWorkingDirectory, false);
-
-	syscallRegister(G_SYSCALL_REGISTER_SIGNAL_HANDLER, (g_syscall_handler) syscallRegisterSignalHandler, false);
+	syscallRegister(G_SYSCALL_SET_WORKING_DIRECTORY, (g_syscall_handler) syscallSetWorkingDirectory, false);
+	syscallRegister(G_SYSCALL_KILL, (g_syscall_handler) syscallKill, false);
 	syscallRegister(G_SYSCALL_REGISTER_IRQ_HANDLER, (g_syscall_handler) syscallRegisterIrqHandler, false);
 	syscallRegister(G_SYSCALL_RESTORE_INTERRUPTED_STATE, (g_syscall_handler) syscallRestoreInterruptedState, false);
+	syscallRegister(G_SYSCALL_REGISTER_SIGNAL_HANDLER, (g_syscall_handler) syscallRegisterSignalHandler, false);
 	syscallRegister(G_SYSCALL_RAISE_SIGNAL, (g_syscall_handler) syscallRaiseSignal, false);
+	syscallRegister(G_SYSCALL_KERNQUERY, (g_syscall_handler) syscallKernQuery, false);
+	syscallRegister(G_SYSCALL_GET_EXECUTABLE_PATH, (g_syscall_handler) syscallGetExecutablePath, false);
+	syscallRegister(G_SYSCALL_GET_PARENT_PROCESS_ID, (g_syscall_handler) syscallGetParentProcessId, false);
+	syscallRegister(G_SYSCALL_TASK_GET_TLS, (g_syscall_handler) syscallTaskGetTls, false);
+	syscallRegister(G_SYSCALL_PROCESS_GET_INFO, (g_syscall_handler) syscallProcessGetInfo, false);
+
+	syscallRegister(G_SYSCALL_CALL_VM86, (g_syscall_handler) syscallCallVm86, false);
+	syscallRegister(G_SYSCALL_LOWER_MEMORY_ALLOCATE, (g_syscall_handler) syscallLowerMemoryAllocate, false);
+	syscallRegister(G_SYSCALL_LOWER_MEMORY_FREE, (g_syscall_handler) syscallLowerMemoryFree, false);
+	syscallRegister(G_SYSCALL_ALLOCATE_MEMORY, (g_syscall_handler) syscallAllocateMemory, true);
+	syscallRegister(G_SYSCALL_UNMAP, (g_syscall_handler) syscallUnmap, true);
+	syscallRegister(G_SYSCALL_SHARE_MEMORY, (g_syscall_handler) syscallShareMemory, true);
+	syscallRegister(G_SYSCALL_MAP_MMIO_AREA, (g_syscall_handler) syscallMapMmioArea, true);
+	syscallRegister(G_SYSCALL_SBRK, (g_syscall_handler) syscallSbrk, false);
+
+	syscallRegister(G_SYSCALL_SPAWN, (g_syscall_handler) syscallSpawn, true);
+	syscallRegister(G_SYSCALL_CREATE_THREAD, (g_syscall_handler) syscallCreateThread, false);
+	syscallRegister(G_SYSCALL_GET_THREAD_ENTRY, (g_syscall_handler) syscallGetThreadEntry, false);
+	
+	syscallRegister(G_SYSCALL_REGISTER_TASK_IDENTIFIER, (g_syscall_handler) syscallRegisterTaskIdentifier, false);
+	syscallRegister(G_SYSCALL_GET_TASK_FOR_IDENTIFIER, (g_syscall_handler) syscallGetTaskForIdentifier, false);
+	syscallRegister(G_SYSCALL_MESSAGE_SEND, (g_syscall_handler) syscallMessageSend, false);
+	syscallRegister(G_SYSCALL_MESSAGE_RECEIVE, (g_syscall_handler) syscallMessageReceive, false);
 
 	syscallRegister(G_SYSCALL_GET_MILLISECONDS, (g_syscall_handler) syscallGetMilliseconds, false);
-	syscallRegister(G_SYSCALL_SPAWN, (g_syscall_handler) syscallSpawn, true);
-
-	syscallRegister(G_SYSCALL_SBRK, (g_syscall_handler) syscallSbrk, false);
 
 	syscallRegister(G_SYSCALL_FS_OPEN, (g_syscall_handler) syscallFsOpen, true);
 	syscallRegister(G_SYSCALL_FS_SEEK, (g_syscall_handler) syscallFsSeek, true);
@@ -162,3 +184,4 @@ void syscallRegisterAll()
 	syscallRegister(G_SYSCALL_FS_FSTAT, (g_syscall_handler) syscallFsFstat, true);
 	syscallRegister(G_SYSCALL_FS_PIPE, (g_syscall_handler) syscallFsPipe, true);
 }
+

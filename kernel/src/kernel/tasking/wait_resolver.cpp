@@ -21,9 +21,10 @@
 #include "ghost/calls/calls.h"
 
 #include "kernel/tasking/wait_resolver.hpp"
-
 #include "kernel/memory/heap.hpp"
 #include "shared/logger/logger.hpp"
+#include "kernel/ipc/message.hpp"
+
 
 bool waitResolverSleep(g_task* task)
 {
@@ -60,3 +61,68 @@ bool waitResolverAtomicLock(g_task* task)
 	return keep_wait;
 }
 
+bool waitResolverJoin(g_task* task)
+{
+	g_wait_resolver_join_data* waitData = (g_wait_resolver_join_data*) task->waitData;
+
+	g_task* otherTask = taskingGetById(waitData->joinedTaskId);
+
+	/* Other task doesn't exist anymore or is dead, then stop waiting */
+	if(otherTask == 0 || otherTask->status == G_THREAD_STATUS_DEAD || otherTask->status == G_THREAD_STATUS_UNUSED)
+	{
+		return true;
+	}
+
+	return false;
+}
+
+bool waitResolverSendMessage(g_task* task)
+{
+	g_syscall_send_message* data = (g_syscall_send_message*) task->syscall.data;
+
+	data->status = messageSend(task->id, data->receiver, data->buffer, data->length, data->transaction);
+	if(data->status == G_MESSAGE_SEND_STATUS_QUEUE_FULL)
+	{
+		return false;
+	}
+	return true;
+}
+
+bool waitResolverReceiveMessage(g_task* task)
+{
+	g_syscall_receive_message* data = (g_syscall_receive_message*) task->syscall.data;
+
+	if(data->break_condition && *data->break_condition)
+	{
+		data->status = G_MESSAGE_RECEIVE_STATUS_INTERRUPTED;
+		return true;
+	}
+
+	data->status = messageReceive(task->id, data->buffer, data->maximum, data->transaction);
+	if(data->status == G_MESSAGE_RECEIVE_STATUS_QUEUE_EMPTY)
+	{
+		return false;
+	}
+	return true;
+}
+
+bool waitResolverVm86(g_task* task)
+{
+	g_wait_vm86_data* waitData = (g_wait_vm86_data*) task->waitData;
+	g_syscall_call_vm86* data = (g_syscall_call_vm86*) task->syscall.data;
+
+	g_task* vm86Task = taskingGetById(waitData->vm86TaskId);
+	if(vm86Task == 0 || vm86Task->status == G_THREAD_STATUS_DEAD || vm86Task->status == G_THREAD_STATUS_UNUSED)
+	{
+		/* VM86 task has finished, copy out registers */
+		*data->out = *waitData->registerStore;
+
+		heapFree(waitData->registerStore);
+
+		data->status = G_VM86_CALL_STATUS_SUCCESSFUL;
+		return true;
+	}
+
+	/* VM86 task still working */
+	return false;
+}

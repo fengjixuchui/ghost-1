@@ -31,6 +31,10 @@
 	klog("[Test successful] %s, line %i", __FUNCTION__, __LINE__); \
 	return test_result_t(1, 0);
 
+#define TEST_FAILED			\
+	klog("[Test failed] %s, line %i", __FUNCTION__, __LINE__); \
+	return test_result_t(0, 1);
+
 
 class test_result_t {
 public:
@@ -56,3 +60,5 @@ public:
 test_result_t runMessageTest();
 
 test_result_t runStdioTest();
+
+test_result_t runThreadTests();

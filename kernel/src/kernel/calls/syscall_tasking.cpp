@@ -24,7 +24,6 @@
 #include "kernel/tasking/wait.hpp"
 #include "kernel/system/interrupts/requests.hpp"
 #include "kernel/memory/memory.hpp"
-#include "kernel/tasking/elf32_loader.hpp"
 
 #include "shared/logger/logger.hpp"
 
@@ -63,22 +62,14 @@ void syscallGetProcessIdForTaskId(g_task* task, g_syscall_get_pid_for_tid* data)
 		data->pid = theTask->process->id;
 	} else
 	{
-		data->pid = -1;
+		data->pid = G_PID_NONE;
 	}
 }
 
-void syscallFork(g_task* task, g_syscall_get_pid_for_tid* data)
+void syscallJoin(g_task* task, g_syscall_join* data)
 {
-	logInfo("syscall not implemented: fork");
-	for(;;)
-		;
-}
-
-void syscallJoin(g_task* task, g_syscall_get_pid_for_tid* data)
-{
-	logInfo("syscall not implemented: join");
-	for(;;)
-		;
+	waitJoinTask(task, data->taskId);
+	taskingSchedule();
 }
 
 void syscallRegisterSignalHandler(g_task* task, g_syscall_register_signal_handler* data)
@@ -96,7 +87,7 @@ void syscallRegisterSignalHandler(g_task* task, g_syscall_register_signal_handle
 
 	} else
 	{
-		data->previousHandlerAddress = -1;
+		data->previousHandlerAddress = 0;
 		data->status = G_REGISTER_SIGNAL_HANDLER_STATUS_INVALID_SIGNAL;
 		logDebug("%! failed to register signal handler %h for invalid signal %i", "syscall", data->handler, data->signal);
 	}
@@ -156,14 +147,12 @@ void syscallSpawn(g_task* task, g_syscall_spawn* data)
 	g_fs_open_status open = filesystemOpen(data->path, G_FILE_FLAG_MODE_READ, task, &fd);
 	if(open == G_FS_OPEN_SUCCESSFUL)
 	{
-		g_task* targetTask;
-		data->spawnStatus = elf32Spawn(task, fd, G_SECURITY_LEVEL_APPLICATION, &targetTask, &data->validationDetails);
+		g_process* targetProcess;
+		data->spawnStatus = taskingSpawn(task, fd, G_SECURITY_LEVEL_APPLICATION, &targetProcess, &data->validationDetails);
 		if(data->spawnStatus == G_SPAWN_STATUS_SUCCESSFUL)
 		{
-			data->pid = targetTask->process->id;
-
-#warning TODO finish implementation
-			logInfo("%! task %i spawned task %i, pass arguments etc...", "syscall", task->id, targetTask->id);
+			data->pid = targetProcess->id;
+			#warning TODO finish implementation (pass arguments etc.)
 		}
 	} else
 	{
@@ -171,3 +160,65 @@ void syscallSpawn(g_task* task, g_syscall_spawn* data)
 		logInfo("%! failed to find binary '%s'", "kernel", data->path);
 	}
 }
+
+void syscallTaskGetTls(g_task* task, g_syscall_task_get_tls* data)
+{
+	data->userThreadObject = (void*) task->tlsCopy.userThreadObject;
+}
+
+void syscallProcessGetInfo(g_task* task, g_syscall_process_get_info* data)
+{
+	data->processInfo = task->process->userProcessInfo;
+}
+
+void syscallKill(g_task* task, g_syscall_kill* data)
+{
+	g_task* target = taskingGetById(data->pid);
+	if(target)
+	{
+		target->process->main->status = G_THREAD_STATUS_DEAD;
+		taskingSchedule();
+	}
+}
+
+void syscallCreateThread(g_task* task, g_syscall_create_thread* data)
+{
+	mutexAcquire(&task->process->lock);
+
+	g_task* thread = taskingCreateThread((g_virtual_address) data->initialEntry, task->process, task->process->main->securityLevel);
+	if(thread)
+	{
+		thread->userEntry.function = data->userEntry;
+		thread->userEntry.data = data->userData;
+		data->threadId = thread->id;
+		data->status = G_CREATE_THREAD_STATUS_SUCCESSFUL;
+	} else
+	{
+		data->status = G_CREATE_THREAD_STATUS_FAILED;
+	}
+	taskingAssign(taskingGetLocal(), thread);
+
+	mutexRelease(&task->process->lock);
+}
+
+void syscallGetThreadEntry(g_task* task, g_syscall_get_thread_entry* data)
+{
+	data->userData = task->userEntry.data;
+	data->userEntry = task->userEntry.function;
+}
+
+void syscallFork(g_task* task, g_syscall_fork* data)
+{
+	logInfo("syscall not implemented: fork");
+	for(;;)
+		;
+}
+
+void syscallGetParentProcessId(g_task* task, g_syscall_get_parent_pid* data)
+{
+	logInfo("syscall not implemented: syscallGetParentProcessId");
+	for(;;)
+		;
+}
+
+

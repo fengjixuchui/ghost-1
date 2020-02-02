@@ -26,6 +26,9 @@
 
 bool waitTryWake(g_task* task)
 {
+	g_physical_address back = taskingTemporarySwitchToSpace(task->process->pageDirectory);
+
+	bool wake = false;
 	if(task->waitResolver && task->waitResolver(task))
 	{
 		task->waitResolver = 0;
@@ -36,9 +39,11 @@ bool waitTryWake(g_task* task)
 		}
 
 		task->status = G_THREAD_STATUS_RUNNING;
-		return true;
+		wake = true;
 	}
-	return false;
+
+	taskingTemporarySwitchBack(back);
+	return wake;
 }
 
 void waitSleep(g_task* task, uint64_t milliseconds)
@@ -76,6 +81,55 @@ void waitForFile(g_task* task, g_fs_node* file, bool (*waitResolverFromDelegate)
 	waitData->nodeId = file->id;
 	task->waitData = waitData;
 	task->waitResolver = waitResolverFromDelegate;
+	task->status = G_THREAD_STATUS_WAITING;
+
+	mutexRelease(&task->process->lock);
+}
+
+void waitJoinTask(g_task* task, g_tid otherTask)
+{
+	mutexAcquire(&task->process->lock);
+
+	g_wait_resolver_join_data* waitData = (g_wait_resolver_join_data*) heapAllocate(sizeof(g_wait_resolver_join_data));
+	waitData->joinedTaskId = otherTask;
+	task->waitData = waitData;
+	task->waitResolver = waitResolverJoin;
+	task->status = G_THREAD_STATUS_WAITING;
+
+	mutexRelease(&task->process->lock);
+}
+
+void waitForMessageSend(g_task* task)
+{
+	mutexAcquire(&task->process->lock);
+
+	task->waitData = 0;
+	task->waitResolver = waitResolverSendMessage;
+	task->status = G_THREAD_STATUS_WAITING;
+
+	mutexRelease(&task->process->lock);
+}
+
+void waitForMessageReceive(g_task* task)
+{
+	mutexAcquire(&task->process->lock);
+
+	task->waitData = 0;
+	task->waitResolver = waitResolverReceiveMessage;
+	task->status = G_THREAD_STATUS_WAITING;
+
+	mutexRelease(&task->process->lock);
+}
+
+void waitForVm86(g_task* task, g_task* vm86Task, g_vm86_registers* registerStore)
+{
+	mutexAcquire(&task->process->lock);
+
+	g_wait_vm86_data* waitData = (g_wait_vm86_data*) heapAllocate(sizeof(g_wait_vm86_data));
+	waitData->registerStore = registerStore;
+	waitData->vm86TaskId = vm86Task->id;
+	task->waitData = waitData;
+	task->waitResolver = waitResolverVm86;
 	task->status = G_THREAD_STATUS_WAITING;
 
 	mutexRelease(&task->process->lock);

@@ -29,13 +29,13 @@
 #include "kernel/logger/kernel_logger.hpp"
 #include "kernel/calls/syscall.hpp"
 #include "kernel/filesystem/filesystem.hpp"
+#include "kernel/ipc/pipes.hpp"
+#include "kernel/ipc/message.hpp"
 
 #include "shared/runtime/constructors.hpp"
 #include "shared/video/console_video.hpp"
 #include "shared/video/pretty_boot.hpp"
 #include "shared/system/serial_port.hpp"
-
-#include "kernel/tasking/elf32_loader.hpp"
 
 static g_mutex bootstrapCoreLock;
 static g_mutex applicationCoreLock;
@@ -79,6 +79,8 @@ void kernelRunBootstrapCore(g_physical_address initialPdPhys)
 
 	systemInitializeBsp(initialPdPhys);
 	filesystemInitialize();
+	pipeInitialize();
+	messageInitialize();
 
 	taskingInitializeBsp();
 	syscallRegisterAll();
@@ -114,23 +116,31 @@ void kernelRunApplicationCore()
 		asm("hlt");
 }
 
+void testSpawn(const char* path)
+{
+	g_task* currentTask = taskingGetCurrentTask();
+	g_fd fd;
+	g_fs_open_status open = filesystemOpen(path, G_FILE_FLAG_MODE_READ, currentTask, &fd);
+	if(open == G_FS_OPEN_SUCCESSFUL)
+	{
+		g_process* outProcess;
+		g_spawn_status spawn = taskingSpawn(currentTask, fd, G_SECURITY_LEVEL_DRIVER, &outProcess);
+		if(spawn == G_SPAWN_STATUS_SUCCESSFUL)
+			logInfo("%! %s -> %i", "test", path, outProcess->id);
+		else
+			logInfo("%! failed to spawn %s with status %i", "kernel", path, spawn);
+	} else
+		logInfo("%! failed to find %s with status %i", "kernel", path, open);
+}
+
 void kernelInitializationThread()
 {
 	g_task* currentTask = taskingGetCurrentTask();
-	logInfo("%! initializing system services in spawner %i", "kernel", currentTask->id);
+	logInfo("%! initializing system services in task %i", "kernel", currentTask->id);
 
-	g_fd fd;
-	g_fs_open_status open = filesystemOpen("/applications/tester.bin", G_FILE_FLAG_MODE_READ, currentTask, &fd);
-	if(open == G_FS_OPEN_SUCCESSFUL)
-	{
-		g_task* testerTask;
-		g_spawn_status spawn = elf32Spawn(currentTask, fd, G_SECURITY_LEVEL_APPLICATION, &testerTask);
-		if(spawn == G_SPAWN_STATUS_SUCCESSFUL)
-			logInfo("%! test suite spawned successfully to task %i", "kernel", testerTask->id);
-		else
-			logInfo("%! failed to spawn tester binary with status %i", "kernel", spawn);
-	} else
-		logInfo("%! failed to find tester binary with status %i", "kernel", open);
+	testSpawn("/applications/ps2driver.bin");
+	testSpawn("/applications/vbedriver.bin");
+	testSpawn("/applications/windowserver.bin");
 
 	taskingKernelThreadExit();
 }

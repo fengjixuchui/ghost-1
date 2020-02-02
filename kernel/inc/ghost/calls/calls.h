@@ -25,7 +25,6 @@
 #include "ghost/calls/calls_memory.hpp"
 #include "ghost/calls/calls_misc.hpp"
 #include "ghost/calls/calls_messaging.hpp"
-#include "ghost/calls/calls_ramdisk.hpp"
 #include "ghost/calls/calls_spawning.hpp"
 #include "ghost/calls/calls_tasking.hpp"
 #include "ghost/calls/calls_vm86.hpp"
@@ -49,16 +48,15 @@ __BEGIN_C
 #define G_SYSCALL_GET_WORKING_DIRECTORY			14
 #define G_SYSCALL_SET_WORKING_DIRECTORY			15
 #define G_SYSCALL_KILL							16
-#define G_SYSCALL_ATOMIC_BLOCK					17
 #define G_SYSCALL_REGISTER_IRQ_HANDLER			18
 #define G_SYSCALL_RESTORE_INTERRUPTED_STATE		19
 #define G_SYSCALL_REGISTER_SIGNAL_HANDLER		20
 #define G_SYSCALL_RAISE_SIGNAL					21
-#define G_SYSCALL_ATOMIC_TRY_LOCK				22
 #define G_SYSCALL_KERNQUERY						23
 #define G_SYSCALL_GET_EXECUTABLE_PATH			24
 #define G_SYSCALL_GET_PARENT_PROCESS_ID			25
-#define G_SYSCALL_EXIT_THREAD					26
+#define G_SYSCALL_TASK_GET_TLS                  27
+#define G_SYSCALL_PROCESS_GET_INFO              28
 
 #define G_SYSCALL_CALL_VM86						50
 #define G_SYSCALL_LOWER_MEMORY_ALLOCATE			51
@@ -77,15 +75,8 @@ __BEGIN_C
 #define G_SYSCALL_GET_TASK_FOR_IDENTIFIER		91
 #define G_SYSCALL_MESSAGE_SEND					92
 #define G_SYSCALL_MESSAGE_RECEIVE				93
-#define G_SYSCALL_MESSAGE_RECEIVE_TRANSACTION	94
 
-#define G_SYSCALL_RAMDISK_FIND					95
-#define G_SYSCALL_RAMDISK_FIND_CHILD			96
-#define G_SYSCALL_RAMDISK_INFO					97
-#define G_SYSCALL_RAMDISK_READ					98
-#define G_SYSCALL_RAMDISK_CHILD_COUNT			99
-#define G_SYSCALL_RAMDISK_CHILD_AT				100
-#define G_SYSCALL_GET_MILLISECONDS				101
+#define G_SYSCALL_GET_MILLISECONDS				100
 
 #define G_SYSCALL_FS_OPEN						120
 #define G_SYSCALL_FS_READ						121

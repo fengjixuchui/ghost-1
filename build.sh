@@ -15,18 +15,39 @@ popd() {
     command popd "$@" > /dev/null
 }
 
+build_clean() {
+	$SH build.sh clean > /dev/null 2>&1 && $SH build.sh all > /dev/null 2>&1
+}
 
-# Install pkg-config wrapper
-pushd tools/pkg-config
-$SH build.sh all
-popd
+print_status() {
+	if [ $? -eq 0 ]; then
+		printf "success\n"
+	else
+		printf "\e[1;31mfailed\e[0m\n"
+	fi
+}
 
+print_skipped() {
+	printf "skipped\n"
+}
+
+print_name() {
+	printf "\e[0;7m$1\e[0m "
+}
+
+# Print header
+echo ""
+printf "\e[4mGhost complete build\e[0m\n"
+echo "This script will attempt building all necessary user-space software."
+echo "If a part of this build fails, run the respective build script within"
+echo "the programs folder to see a more detailed log."
+echo ""
 
 # First build necessary ports (if not done yet)
+print_name ports
 if [ -f $SYSROOT/system/lib/libcairo.a ]; then
-	echo "Skipping build of ports"
+	print_skipped
 else
-	echo "Building ports"
 	pushd patches/ports
 	$SH port.sh zlib/1.2.8
 	$SH port.sh pixman/0.32.6
@@ -34,35 +55,55 @@ else
 	$SH port.sh freetype/2.5.3
 	$SH port.sh cairo/1.12.18
 	popd
-	echo ""
 fi
 
+# Prepare libghostuser
+print_name libuser
+if [ -f $SYSROOT/system/lib/libghostuser.a ]; then
+	print_skipped
+else
+	pushd libuser
+	build_clean
+	print_status
+	popd
+fi
 
-# Prepare C++ library
-echo "Building libuser"
-pushd libuser
-$SH build.sh clean
-$SH build.sh all
+# Prepare libapi & libc
+pushd libapi
+print_name libapi
+build_clean
+print_status
 popd
-
+pushd libc
+print_name libc
+build_clean
+print_status
+popd
 
 # Make all applications
 pushd applications
+print_name applications
+success=0
+total=0
 for dir in */; do
-	echo "Building $dir"
 	pushd $dir
-		$SH build.sh clean
-		$SH build.sh all
+	build_clean
+	if [ $? -eq 0 ]; then
+		printf "${dir%/} "
+		((success=success+1))
+	else
+		printf "\e[1;31m${dir%/}\e[0m "
+	fi
+	((total=total+1))
 	popd
-	echo ""
 done
+echo "($success/$total programs built)"
 popd
 
-
 # Finally build kernel
-echo "Building kernel"
+print_name kernel
 pushd kernel
-$SH build.sh clean
-$SH build.sh all
+build_clean
+print_status
 popd
 echo ""

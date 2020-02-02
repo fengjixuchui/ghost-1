@@ -1,7 +1,7 @@
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  *                                                                           *
  *  Ghost, a micro-kernel based operating system for the x86 architecture    *
- *  Copyright (C) 2015, Max SchlÃ¼ssel <lokoxe@gmail.com>                     *
+ *  Copyright (C) 2015, Max Schlüssel <lokoxe@gmail.com>                     *
  *                                                                           *
  *  This program is free software: you can redistribute it and/or modify     *
  *  it under the terms of the GNU General Public License as published by     *
@@ -67,9 +67,8 @@ void ioapicInitialize(g_ioapic* io)
 
 	// Get version
 	uint32_t versionValue = ioapicRead(io, IOAPIC_VER);
-	uint32_t version = versionValue & 0xFF;
 	io->redirectEntryCount = (versionValue >> 16) & 0xFF;
-	logDebug("%! id %i: version %i, redirect entries: %i", "ioapic", io->id, version, io->redirectEntryCount);
+	logDebug("%! id %i: version %i, redirect entries: %i", "ioapic", io->id, versionValue & 0xFF, io->redirectEntryCount);
 }
 
 void ioapicCreateMapping(g_ioapic* io)

@@ -130,14 +130,14 @@ typedef struct {
 	char* identifier;
 
 	uint8_t successful;
-}__attribute__((packed)) g_task_id_register;
+}__attribute__((packed)) g_syscall_task_id_register;
 
 /**
  * @field identifier
  * 		the identifier
  *
  * @field resultTaskId
- * 		the task id, or -1 if not successful
+ * 		the task id, or G_TID_NONE if not successful
  */
 typedef struct {
 	char* identifier;
@@ -221,5 +221,13 @@ typedef struct {
 	g_pid process;
 	g_raise_signal_status status;
 }__attribute__((packed)) g_syscall_raise_signal;
+
+/**
+ * @field processInfo
+ * 		pointer to the process info
+ */
+typedef struct {
+	g_process_info* processInfo;
+}__attribute__((packed)) g_syscall_process_get_info;
 
 #endif
