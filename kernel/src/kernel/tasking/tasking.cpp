@@ -38,6 +38,7 @@
 #include "shared/logger/logger.hpp"
 #include "kernel/utils/hashmap.hpp"
 #include "kernel/system/interrupts/ivt.hpp"
+#include "kernel/memory/lower_heap.hpp"
 
 static g_tasking_local* taskingLocal;
 static g_mutex taskingIdLock;
@@ -100,10 +101,13 @@ void taskingInitializeLocal()
 
 	g_process* idle = taskingCreateProcess();
 	local->scheduling.idleTask = taskingCreateThread((g_virtual_address) taskingIdleThread, idle, G_SECURITY_LEVEL_KERNEL);
+	local->scheduling.idleTask->type = G_THREAD_TYPE_VITAL;
 	logDebug("%! core: %i idle task: %i", "tasking", processorGetCurrentId(), idle->main->id);
 
 	g_process* cleanup = taskingCreateProcess();
-	taskingAssign(taskingGetLocal(), taskingCreateThread((g_virtual_address) taskingCleanupThread, cleanup, G_SECURITY_LEVEL_KERNEL));
+	g_task* cleanupTask = taskingCreateThread((g_virtual_address) taskingCleanupThread, cleanup, G_SECURITY_LEVEL_KERNEL);
+	cleanupTask->type = G_THREAD_TYPE_VITAL;
+	taskingAssign(taskingGetLocal(), cleanupTask);
 	logDebug("%! core: %i cleanup task: %i", "tasking", processorGetCurrentId(), cleanup->main->id);
 
 	schedulerInitializeLocal();
@@ -137,9 +141,6 @@ void taskingApplySecurityLevel(volatile g_processor_state* state, g_security_lev
 
 void taskingResetTaskState(g_task* task)
 {
-	g_virtual_address esp = task->stack.end - sizeof(g_processor_state);
-	task->state = (g_processor_state*) esp;
-
 	memorySetBytes((void*) task->state, 0, sizeof(g_processor_state));
 	task->state->eflags = 0x200;
 	task->state->esp = (g_virtual_address) task->state;
@@ -212,6 +213,8 @@ g_task* taskingCreateThreadVm86(g_process* process, uint32_t intr, g_vm86_regist
 	taskingMemoryCreateInterruptStack(task);
 
 	g_processor_state_vm86* state = (g_processor_state_vm86*) (task->interruptStack.end - sizeof(g_processor_state_vm86));
+	task->state = (g_processor_state*) state;
+
 	memorySetBytes(state, 0, sizeof(g_processor_state_vm86));
 	state->defaultFrame.eax = in.ax;
 	state->defaultFrame.ebx = in.bx;
@@ -224,8 +227,6 @@ g_task* taskingCreateThreadVm86(g_process* process, uint32_t intr, g_vm86_regist
 	state->defaultFrame.eip = G_FP_OFF(ivt->entry[intr]);
 	state->defaultFrame.cs = G_FP_SEG(ivt->entry[intr]);
 	state->defaultFrame.eflags = 0x20202;
-	#warning Uhm ? 0x1000?
-	state->defaultFrame.esp = 0x1000;
 	g_virtual_address userStackVirt = (uint32_t) lowerHeapAllocate(0x2000);
 	state->defaultFrame.ss = ((G_PAGE_ALIGN_DOWN(userStackVirt) + 0x1000) >> 4);
 
@@ -235,6 +236,7 @@ g_task* taskingCreateThreadVm86(g_process* process, uint32_t intr, g_vm86_regist
 	state->ds = in.ds;
 
 	task->vm86Data = (g_task_information_vm86*) heapAllocateClear(sizeof(g_task_information_vm86));
+	task->vm86Data->userStack = userStackVirt;
 	task->vm86Data->out = out;
 
 	taskingTemporarySwitchBack(returnDirectory);
@@ -513,9 +515,7 @@ void taskingRemoveThread(g_task* task)
 	// Clean up miscellaneous memory
 	messageTaskRemoved(task->id);
 
-	if(task->vm86Data) heapFree(task->vm86Data);
-
-	// Free stack pages
+	/* Remove interrupt stack */
 	if(task->interruptStack.start)
 	{
 		for(g_virtual_address page = task->interruptStack.start; page < task->interruptStack.end; page += G_PAGE_SIZE)
@@ -540,12 +540,22 @@ void taskingRemoveThread(g_task* task)
 			pagingUnmapPage(page);
 		}
 	}
-	if(task->securityLevel == G_SECURITY_LEVEL_KERNEL)
-		addressRangePoolFree(memoryVirtualRangePool, task->stack.start);
-	else
-		addressRangePoolFree(task->process->virtualRangePool, task->stack.start);
 
-	// Free TLS copy if available
+	/* Remove user stacks */
+	if(task->type == G_THREAD_TYPE_VM86)
+	{
+		lowerHeapFree((void*) task->vm86Data->userStack);
+
+	} else if(task->securityLevel == G_SECURITY_LEVEL_KERNEL)
+	{
+		addressRangePoolFree(memoryVirtualRangePool, task->stack.start);
+
+	} else
+	{
+		addressRangePoolFree(task->process->virtualRangePool, task->stack.start);
+	}
+
+	/* Free TLS copy if available */
 	if(task->tlsCopy.start)
 	{
 		for(g_virtual_address page = task->tlsCopy.start; page < task->tlsCopy.end; page += G_PAGE_SIZE)
@@ -563,7 +573,7 @@ void taskingRemoveThread(g_task* task)
 
 	taskingTemporarySwitchBack(returnDirectory);
 
-	// Remove self from process
+	/* Remove self from process */
 	mutexAcquire(&task->process->lock);
 
 	g_task_entry* entry = task->process->tasks;
@@ -588,6 +598,7 @@ void taskingRemoveThread(g_task* task)
 
 	mutexRelease(&task->process->lock);
 
+	/* Kill process if necessary */
 	if(task->process->tasks == 0)
 	{
 		taskingRemoveProcess(task->process);
@@ -597,7 +608,9 @@ void taskingRemoveThread(g_task* task)
 		taskingKillProcess(task->process->id);
 	}
 
+	/* Finalize freeing */
 	hashmapRemove(taskGlobalMap, task->id);
+	if(task->vm86Data) heapFree(task->vm86Data);
 	heapFree(task);
 }
 
