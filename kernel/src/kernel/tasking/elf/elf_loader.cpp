@@ -34,9 +34,11 @@ g_spawn_status elfLoadExecutable(g_task* caller, g_fd fd, g_security_level secur
 	g_virtual_address executableImageEnd;
 	g_spawn_validation_details validationDetails;
 	g_spawn_status spawnStatus = elfObjectLoad(caller, 0, "main", fd, 0, targetProcess->virtualRangePool, &executableImageEnd, &executableObject, &validationDetails);
-	elf32TlsCreateMasterImage(caller, fd, targetProcess, executableObject);
-	executableImageEnd = elfUserProcessCreateInfo(targetProcess, executableObject, executableImageEnd);
-
+	if(spawnStatus == G_SPAWN_STATUS_SUCCESSFUL)
+	{
+		elf32TlsCreateMasterImage(caller, fd, targetProcess, executableObject);
+		executableImageEnd = elfUserProcessCreateInfo(targetProcess, executableObject, executableImageEnd);
+	}
 	taskingTemporarySwitchBack(returnDirectory);
 
 	/* Cancel if validation has failed */
@@ -47,7 +49,8 @@ g_spawn_status elfLoadExecutable(g_task* caller, g_fd fd, g_security_level secur
 		return spawnStatus;
 	}
 
-	/* Update process */	
+	/* Update process */
+	targetProcess->object = executableObject;
 	targetProcess->image.start = executableObject->startAddress;
 	targetProcess->image.end = executableImageEnd;
 	logDebug("%! process loaded to %h - %h", "elf", targetProcess->image.start, targetProcess->image.end);
